@@ -12,7 +12,7 @@ module MacWifi
 describe Model do
 
 
-  subject { Model.new }
+  subject { Model.new(MacOsDriver.new) }
 
   context 'turning wifi on and off' do
     it 'can turn wifi on' do

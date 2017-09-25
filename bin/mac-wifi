@@ -29,10 +29,13 @@ module MacWifi
 VERSION = '1.0.0'
 
 
-class BaseModel
+class Model
 
-  def initialize(verbose = false)
-    @verbose_mode = verbose
+  attr_accessor :os_driver, :verbose_mode
+
+  def initialize(os_driver, verbose_mode = false)
+    @os_driver = os_driver
+    @verbose_mode = verbose_mode
   end
 
 
@@ -112,29 +115,28 @@ class BaseModel
     # If the disabled code below is enabled, an error will be raised if a password is required,
     # even though it is stored.
     # network_name = current_network
-    wifi_off
-    wifi_on
+    os_driver.wifi_off
+    os_driver.wifi_on
     # connect(network_name) if network_name
   end
 
 
   def connected_to?(network_name)
-    network_name == connected_network_name
+    network_name == os_driver.connected_network_name
   end
 
 
   # Connects to the passed network name, optionally with password.
   # Turns wifi on first, in case it was turned off.
-  # Relies on subclass implementation of simple_connect().
   def connect(network_name, password = nil)
     if network_name.nil? || network_name.empty?
       raise "A network name is required but was not provided."
     end
-    wifi_on
-    simple_connect(network_name, password)
+    os_driver.wifi_on
+    os_driver.connect(network_name, password)
 
     # Verify that the network is now connected:
-    actual_network_name = connected_network_name
+    actual_network_name = os_driver.connected_network_name
     unless actual_network_name == network_name
       message = %Q{Expected to connect to "#{network_name}" but }
       if actual_network_name
@@ -155,8 +157,7 @@ class BaseModel
   def remove_preferred_networks(*network_names)
     networks_to_remove = network_names & preferred_networks # exclude any nonexistent networks
     networks_to_remove.each do |name|
-      run_os_command("sudo networksetup -removepreferredwirelessnetwork " +
-                         "#{wifi_hardware_port} #{Shellwords.shellescape(name)}")
+      os_driver.remove_preferred_network(name)
     end
     networks_to_remove
   end
@@ -164,7 +165,7 @@ class BaseModel
 
   def preferred_network_password(preferred_network_name)
     if preferred_networks.include?(preferred_network_name)
-      simple_preferred_network_password(preferred_network_name)
+      os_driver.preferred_network_password(preferred_network_name)
     else
       raise "Network #{preferred_network_name} not in preferred networks list."
     end
@@ -201,12 +202,14 @@ class BaseModel
 end
 
 
-class MacOsModel < BaseModel
+class MacOsDriver
 
   AIRPORT_CMD = '/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport'
 
-  def initialize(verbose)
-    super
+  attr_accessor :verbose
+
+  def initialize(verbose_mode = false)
+    @verbose = verbose_mode
   end
 
 
@@ -306,8 +309,8 @@ class MacOsModel < BaseModel
   end
 
 
-  # This method is called by BaseModel#connect to do the OS-specific connection logic.
-  def simple_connect(network_name, password = nil)
+  # This method is called by Model#connect to do the OS-specific connection logic.
+  def connect(network_name, password = nil)
     command = "networksetup -setairportnetwork #{wifi_hardware_port} " + "#{Shellwords.shellescape(network_name)}"
     if password
       command << ' ' << Shellwords.shellescape(password)
@@ -322,7 +325,7 @@ class MacOsModel < BaseModel
   #     If not, return nil
   #   else
   #     raise an error
-  def simple_preferred_network_password(preferred_network_name)
+  def preferred_network_password(preferred_network_name)
     command = %Q{security find-generic-password -D "AirPort network password" -a "#{preferred_network_name}" -w 2>&1}
     begin
       return run_os_command(command).chomp
@@ -469,7 +472,8 @@ When in interactive shell mode:
 
 
   def initialize
-    @model = MacOsModel.new(verbose_mode)
+    verbose = verbose_mode
+    @model = Model.new(MacOsDriver.new(verbose), verbose)
     @interactive_mode = false # will be true if/when user selects shell option on command line
   end
 
